@@ -1,4 +1,18 @@
-import { mxGraph, mxCodec, mxUtils, mxHierarchicalLayout, mxConstants, mxCircleLayout, mxGeometry, mxFastOrganicLayout, mxCompactTreeLayout, mxRadialTreeLayout, mxPartitionLayout, mxStackLayout } from './mxgraph/index.js';
+import {
+  mxCircleLayout,
+  mxCodec,
+  mxCompactTreeLayout,
+  mxConstants,
+  mxFastOrganicLayout,
+  mxGeometry,
+  mxGraph,
+  mxHierarchicalLayout,
+  mxPartitionLayout,
+  mxPoint,
+  mxRadialTreeLayout,
+  mxStackLayout,
+  mxUtils,
+} from './mxgraph/index.js';
 
 const LAYOUT_HIERARCHICAL = 'hierarchical'
 const LAYOUT_CIRCLE = 'circle'
@@ -34,12 +48,29 @@ export type StyleOverrides = {
   opacity?: number;
 }
 
+export type Waypoint = {
+  x: number;
+  y: number;
+}
+
+export const EDGE_STYLES = {
+  orthogonal: 'orthogonalEdgeStyle',
+  elbow: 'elbowEdgeStyle',
+  'entity-relation': 'entityRelationEdgeStyle',
+  segment: 'segmentEdgeStyle',
+  straight: 'none',
+} as const;
+
+export type EdgeStyleName = keyof typeof EDGE_STYLES;
+
 export type LinkNodesParams = {
   from: string;
   to: string;
   title?: string;
   style?: Record<string, any>;
   undirected?: boolean;
+  waypoints?: Waypoint[];
+  edgeStyle?: EdgeStyleName;
 }
 
 export class Graph {
@@ -86,21 +117,21 @@ export class Graph {
 
   /**
    * Parses a style definition into a key-value object.
-   * 
+   *
    * Handles both string and object style formats:
    * - String format: "key1=value1;key2=value2;" (semicolon-separated key=value pairs)
    * - Object format: { key1: "value1", key2: "value2" } (plain object)
-   * 
+   *
    * For string styles, empty values (e.g., "key=") are converted to empty strings.
    * For object styles, the input is shallow copied to avoid mutation.
-   * 
+   *
    * @param style - Style definition as either a semicolon-separated string or object
    * @returns Object with style properties as key-value pairs
-   * 
+   *
    * @example
    * parseStyle("rounded=1;whiteSpace=wrap;html=1")
    * // Returns: { rounded: "1", whiteSpace: "wrap", html: "1" }
-   * 
+   *
    * @example
    * parseStyle({ rounded: 1, whiteSpace: "wrap" })
    * // Returns: { rounded: 1, whiteSpace: "wrap" }
@@ -118,19 +149,19 @@ export class Graph {
 
   /**
    * Converts a style object into a semicolon-separated style string.
-   * 
+   *
    * This function is the inverse of parseStyle(), converting a key-value object
    * back into the string format used by mxGraph. Properties with undefined values
    * are skipped, while properties with falsy values (empty string, 0, false) are
    * included with just the key name (no equals sign).
-   * 
+   *
    * @param style - Object with style properties as key-value pairs
    * @returns Semicolon-separated style string in format "key1=value1;key2;key3=value3;"
-   * 
+   *
    * @example
    * stringifyStyle({ rounded: "1", whiteSpace: "wrap", html: "1" })
    * // Returns: "rounded=1;whiteSpace=wrap;html=1;"
-   * 
+   *
    * @example
    * stringifyStyle({ rounded: "", whiteSpace: "wrap" })
    * // Returns: "rounded;whiteSpace=wrap;"
@@ -141,15 +172,15 @@ export class Graph {
     }, '');
   }
 
-  
+
 
   /**
    * Adjusts the style string for a specific node kind, applying kind-specific modifications.
-   * 
+   *
    * For RoundedRectangle nodes, this function modifies the corner radius by setting:
    * - absoluteArcSize to '1' to enable absolute arc sizing
    * - arcSize to the calculated value (corner_radius * 2, default to 24)
-   * 
+   *
    * @param style - The base style string to modify
    * @param kind - The node kind (e.g., 'RoundedRectangle', 'Rectangle', etc.)
    * @param corner_radius - The desired corner radius in pixels (only applies to RoundedRectangle)
@@ -197,12 +228,12 @@ export class Graph {
     return result;
   }
 
-  
+
   addNode({ id, title, parent = 'root', kind = 'Rectangle', x = 10, y = 10, corner_radius, ...rest }) {
     const normalizedKind = Graph.normalizeKind(kind)
     const styleOverrides = Graph.pickStyleOverrides(rest);
     const { style, width, height } = { ...Graph.Kinds[normalizedKind], ...rest }
-    
+
     const to = parent === 'root' ? this.root : this.model.getCell(parent)
     const node = this.graph.insertVertex(to, id, title, Number(x), Number(y), width, height);
     const adjustedStyle = this.adjustStyleByKind(style, normalizedKind, corner_radius);
@@ -246,8 +277,8 @@ export class Graph {
     return this
   }
 
-  linkNodes({ from, to, title, style = {}, undirected }: LinkNodesParams) {
-    
+  linkNodes({ from, to, title, style = {}, undirected, waypoints, edgeStyle }: LinkNodesParams) {
+
     const [fromNode, toNode] = [this.model.getCell(from), this.model.getCell(to)]
 
     // Compute candidate IDs
@@ -257,7 +288,7 @@ export class Graph {
     const idCanonical = `${a}-2-${b}`
 
     // Build effective style
-    const effective: any = computeEffectiveLineStyle(style, undirected)
+    const effective: any = computeEffectiveLineStyle(style, undirected, edgeStyle)
 
      // Try to find an existing edge to update (do not rename IDs)
     const existing = this.model.getCell(idDirect) || this.model.getCell(idReverse) || this.model.getCell(idCanonical)
@@ -268,8 +299,19 @@ export class Graph {
       const idToUse = undirected ? idCanonical : idDirect
       link = this.graph.insertEdge(this.root, idToUse, title ? title : null, fromNode, toNode);
     }
-    
+
     link.setStyle(this.toStyleString(effective))
+
+    // Apply waypoints to the edge geometry
+    if (waypoints && waypoints.length > 0) {
+      const geo = link.getGeometry();
+      if (geo) {
+        const cloned = geo.clone();
+        cloned.points = waypoints.map((wp: Waypoint) => new mxPoint(wp.x, wp.y));
+        link.setGeometry(cloned);
+      }
+    }
+
     return link.getId()
   }
 
@@ -385,7 +427,7 @@ export class Graph {
 
     // Create a codec with the parsed document
     const codec = new mxCodec(parsedDoc);
-    
+
     codec.decode(parsedDoc.documentElement, graph.model);
 
     return graph;
@@ -400,8 +442,21 @@ export class Graph {
  * @param {boolean} [undirected] - If true, creates an undirected edge (no arrows).
  * @returns {Record<string, any>} The computed style object for the edge.
  */
-function computeEffectiveLineStyle(style: Record<string, any> = {}, undirected?: boolean): Record<string, any> {
-  const base = { edgeStyle: 'none', noEdgeStyle: 1, orthogonal: 1, html: 1 }
+function computeEffectiveLineStyle(style: Record<string, any> = {}, undirected?: boolean, edgeStyle?: EdgeStyleName): Record<string, any> {
+  const base: Record<string, any> = { edgeStyle: 'none', noEdgeStyle: 1, orthogonal: 1, html: 1 }
+
+  // Apply edge routing style if specified
+  if (edgeStyle && edgeStyle in EDGE_STYLES) {
+    const mxEdgeStyle = EDGE_STYLES[edgeStyle];
+    if (mxEdgeStyle === 'none') {
+      base.edgeStyle = 'none';
+      base.noEdgeStyle = 1;
+    } else {
+      base.edgeStyle = mxEdgeStyle;
+      delete base.noEdgeStyle;
+    }
+  }
+
   const effective: Record<string, any> = { ...base, ...style }
   if (undirected) {
     effective.reverse = undefined
