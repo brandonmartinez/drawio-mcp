@@ -27,7 +27,14 @@ export class LinkNodesTool implements Tool {
                 title: { type: 'string', description: 'Connection label (optional)' },
                 dashed: { type: 'boolean', description: 'Whether the connection should be dashed' },
                 reverse: { type: 'boolean', description: 'Whether to reverse the connection direction' },
-                undirected: { type: 'boolean', description: 'Create an undirected edge (no arrows); overrides reverse' }
+                undirected: { type: 'boolean', description: 'Create an undirected edge (no arrows); overrides reverse' },
+                strokeColor: { type: 'string', description: 'Line color (hex, e.g., "#6c8ebf")' },
+                fontColor: { type: 'string', description: 'Label text color (hex, e.g., "#333333")' },
+                strokeWidth: { type: 'number', description: 'Line width in pixels' },
+                fontSize: { type: 'number', description: 'Label font size in pixels' },
+                fontStyle: { type: 'integer', description: 'Font style bitmask: 1=bold, 2=italic, 4=underline (combinable, e.g., 3=bold+italic)' },
+                fontFamily: { type: 'string', description: 'Label font family name (e.g., "Helvetica")' },
+                opacity: { type: 'number', minimum: 0, maximum: 100, description: 'Overall opacity (0=transparent, 100=opaque)' }
               },
               required: ['from', 'to']
             }
@@ -46,11 +53,18 @@ export class LinkNodesTool implements Tool {
     const graph = await this.fileManager.loadGraphFromSvg(file_path);
 
     for (const edge of edges) {
-      const { from, to, title, dashed, reverse, undirected } = edge;
+      const { from, to, title, dashed, reverse, undirected, strokeColor, fontColor, strokeWidth, fontSize, fontStyle, fontFamily, opacity } = edge;
 
       const style = {
         ...(dashed && { dashed: 1 }),
         ...(reverse && { reverse: true }),
+        ...(strokeColor !== undefined && { strokeColor }),
+        ...(fontColor !== undefined && { fontColor }),
+        ...(strokeWidth !== undefined && { strokeWidth }),
+        ...(fontSize !== undefined && { fontSize }),
+        ...(fontStyle !== undefined && { fontStyle }),
+        ...(fontFamily !== undefined && { fontFamily }),
+        ...(opacity !== undefined && { opacity }),
       };
       
       graph.linkNodes({ from, to, title, style, undirected });

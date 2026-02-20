@@ -21,6 +21,18 @@ const KIND_ROUNDED_RECTANGLE = 'RoundedRectangle'
 const PROP_ARC_SIZE = 'arcSize'
 const PROP_ABSOLUTE_ARC_SIZE = 'absoluteArcSize'
 
+const STYLE_OVERRIDE_KEYS = ['fillColor', 'strokeColor', 'fontColor', 'strokeWidth', 'fontSize', 'fontStyle', 'fontFamily', 'opacity'] as const;
+
+export type StyleOverrides = {
+  fillColor?: string;
+  strokeColor?: string;
+  fontColor?: string;
+  strokeWidth?: number;
+  fontSize?: number;
+  fontStyle?: number;
+  fontFamily?: string;
+  opacity?: number;
+}
 
 export type LinkNodesParams = {
   from: string;
@@ -158,18 +170,47 @@ export class Graph {
     return style;
   }
 
+  /**
+   * Merges style override properties into a style string.
+   * Only properties with defined values are applied.
+   */
+  private mergeStyleOverrides(styleStr: string, overrides: StyleOverrides): string {
+    const defined = Object.entries(overrides).filter(([_, v]) => v !== undefined);
+    if (defined.length === 0) return styleStr;
+    const styleObj = this.parseStyle(styleStr);
+    for (const [key, value] of defined) {
+      styleObj[key] = String(value);
+    }
+    return this.stringifyStyle(styleObj);
+  }
+
+  /**
+   * Extracts known style override properties from a params object.
+   */
+  private static pickStyleOverrides(params: Record<string, any>): StyleOverrides {
+    const result: StyleOverrides = {};
+    for (const key of STYLE_OVERRIDE_KEYS) {
+      if (params[key] !== undefined) {
+        (result as any)[key] = params[key];
+      }
+    }
+    return result;
+  }
+
   
   addNode({ id, title, parent = 'root', kind = 'Rectangle', x = 10, y = 10, corner_radius, ...rest }) {
     const normalizedKind = Graph.normalizeKind(kind)
+    const styleOverrides = Graph.pickStyleOverrides(rest);
     const { style, width, height } = { ...Graph.Kinds[normalizedKind], ...rest }
     
     const to = parent === 'root' ? this.root : this.model.getCell(parent)
     const node = this.graph.insertVertex(to, id, title, Number(x), Number(y), width, height);
-    node.setStyle(this.adjustStyleByKind(style, normalizedKind, corner_radius));
+    const adjustedStyle = this.adjustStyleByKind(style, normalizedKind, corner_radius);
+    node.setStyle(this.mergeStyleOverrides(adjustedStyle, styleOverrides));
     return node
   }
 
-  editNode({ id, title, kind, x, y, width, height, corner_radius }) {
+  editNode({ id, title, kind, x, y, width, height, corner_radius, ...rest }) {
     const node = this.model.getCell(id);
 
     if (!node) throw new Error(`Node not found`);
@@ -183,6 +224,14 @@ export class Graph {
       const currentStyleStr = node.getStyle && node.getStyle() ? String(node.getStyle()) : '';
       node.setStyle(this.adjustStyleByKind(currentStyleStr, normalizedKind, corner_radius));
     }
+
+    // apply style overrides
+    const styleOverrides = Graph.pickStyleOverrides(rest);
+    if (Object.keys(styleOverrides).length > 0) {
+      const currentStyleStr = node.getStyle && node.getStyle() ? String(node.getStyle()) : '';
+      node.setStyle(this.mergeStyleOverrides(currentStyleStr, styleOverrides));
+    }
+
     // if the geometry is changed, update the geometry
     if (x !== undefined || y !== undefined || width !== undefined || height !== undefined) {
       const geometry = node.getGeometry();
